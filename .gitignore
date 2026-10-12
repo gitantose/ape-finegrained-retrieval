@@ -1,0 +1,40 @@
+# Private operational materials: publication also requires an explicit allowlist.
+/AGENTS.md
+/AGENTS.override.md
+/private/
+/.agents/
+/.codex/
+/.aws/
+/.vscode/
+/.idea/
+/*.pdf
+
+# Local environments, data, artifacts, and release exports.
+/.venv/
+/venv/
+/data/
+/runs/
+/release-staging/
+/output/
+/tmp/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.cache/
+.ipynb_checkpoints/
+*.egg-info/
+/build/
+/dist/
+.coverage
+/htmlcov/
+
+# Secrets and local logs.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.log
+Thumbs.db
+Desktop.ini
