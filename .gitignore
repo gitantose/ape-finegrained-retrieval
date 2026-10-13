@@ -1,4 +1,4 @@
-# Private operational materials: publication also requires an explicit allowlist.
+# Defense in depth: operational materials belong outside this repository.
 /AGENTS.md
 /AGENTS.override.md
 /private/
@@ -9,12 +9,11 @@
 /.idea/
 /*.pdf
 
-# Local environments, data, artifacts, and release exports.
+# Local environments, data and runtime artifacts.
 /.venv/
 /venv/
 /data/
 /runs/
-/release-staging/
 /output/
 /tmp/
 __pycache__/
