@@ -1,0 +1,22 @@
+{
+  "model_id": "BAAI/bge-small-en-v1.5",
+  "model_revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+  "pooling": ["mean", "cls"],
+  "query_prefix": "query: ",
+  "max_seq_len": 128,
+  "batch_size": 2,
+  "normalize_embeddings": true,
+  "dtype": "float32",
+  "tf32": false,
+  "seed": 42,
+  "cpu_threads": 4,
+  "device": "cuda",
+  "shard_rows": 512,
+  "query_chunk_size": 128,
+  "checkpoint_queries": 1024,
+  "rank_rule": "1 + count(score > gold_score)",
+  "budget_seconds": 7200,
+  "host_memory_budget_bytes": 6442450944,
+  "cuda_allocated_budget_bytes": 2147483648,
+  "additional_disk_budget_bytes": 4294967296
+}

@@ -1,0 +1,11 @@
+{
+  "device": "cuda",
+  "query_chunk_size": 8,
+  "checkpoint_queries": 1024,
+  "rule": "h_min_to_p",
+  "rank_rule": "1 + count(score > gold_score)",
+  "budget_seconds": 7200,
+  "host_memory_budget_bytes": 8589934592,
+  "cuda_allocated_budget_bytes": 3221225472,
+  "additional_disk_budget_bytes": 134217728
+}

@@ -1,0 +1,17 @@
+{
+  "ape_source_revision": "a6723d56e70a5fc92577858c9c2a2f17a6cbfe2a",
+  "model_id": "sapienzanlp/ape-bge-small",
+  "model_revision": "e6dc09deb8c9e18323f17bbfd35b9025d89d8044",
+  "backbone_id": "BAAI/bge-small-en-v1.5",
+  "backbone_revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+  "model_sha256": "ad1992f37a1327f9e6cd73dcbf7652660bf83d47694258e1b06bda8bba6155eb",
+  "config_sha256": "31fa955c8698901960cf12e8af2001b97e96801d9ad11c456b78ba907cf5dd11",
+  "batch_size": 2,
+  "max_seq_len": 128,
+  "activity_threshold": 0.6,
+  "normalize_embeddings": true,
+  "dtype": "float32",
+  "tf32": false,
+  "seed": 42,
+  "cpu_threads": 4
+}

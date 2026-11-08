@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ape-retrieval"
+version = "0.1.0"
+description = "Reproducible APE retrieval research"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "ape @ https://github.com/SapienzaNLP/APE/archive/a6723d56e70a5fc92577858c9c2a2f17a6cbfe2a.tar.gz",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

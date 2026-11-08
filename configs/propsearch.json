@@ -1,0 +1,14 @@
+{
+  "dataset_id": "sapienzanlp/propsearch",
+  "dataset_revision": "37802225e3c9795200f3695404e00a22acdb4a31",
+  "files": {
+    "source_sentences/train-00000-of-00001.parquet": "84606de8809b998d9534272092e9b4c18f87b01be441c87adac6273308a9a46b",
+    "corpus/train-00000-of-00001.parquet": "901cb9fdd8ae461b5b6b4d79e9db5dab08ec68a75fdcd5834481a220f7fed3d0",
+    "queries/train-00000-of-00001.parquet": "1520274517408982806a1da30b03052c9c5d3235066fb8681a27e251f0ec207b"
+  },
+  "expected_rows": {"source_sentences": 14483, "corpus": 300000, "queries": 36337},
+  "device": "cuda",
+  "shard_rows": 512,
+  "budget_seconds": 14400,
+  "disk_budget_bytes": 8589934592
+}
