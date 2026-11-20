@@ -1,0 +1,66 @@
+{
+  "reference": "configs/reference.json",
+  "device": "cuda",
+  "segmentation": "punctuation-newline-offset-windows-v1",
+  "ks": [
+    1,
+    5,
+    10,
+    20
+  ],
+  "processed_dir": "data/benchmarks/processed",
+  "runs_dir": "runs/benchmark-suite",
+  "encoding_shard_documents": 64,
+  "scoring_block_slots": 16384,
+  "ranking_checkpoint_queries": 128,
+  "storage_roots": [
+    "data/benchmarks",
+    "runs/benchmark-suite"
+  ],
+  "limits": {
+    "host_memory_bytes": 6442450944,
+    "cuda_allocated_bytes": 2147483648,
+    "storage_bytes": 15032385536,
+    "minimum_free_disk_bytes": 2147483648
+  },
+  "datasets": {
+    "nq": {
+      "dataset_id": "LLukas22/nq-simplified",
+      "revision": "d0b4aa2c6b142fda852d4f4f371c1134560b69fa",
+      "configuration": null,
+      "raw_dir": "data/benchmarks/raw/nq",
+      "splits": {
+        "test": [
+          "test.json"
+        ],
+        "train": [
+          "train.json"
+        ]
+      },
+      "main_split": "test"
+    },
+    "squad": {
+      "dataset_id": "rajpurkar/squad",
+      "revision": "7b6d24c440a36b6815f21b70d25016731768db1f",
+      "configuration": "plain_text",
+      "raw_dir": "data/benchmarks/raw/squad",
+      "splits": {
+        "train": [
+          "plain_text/train-00000-of-00001.parquet"
+        ],
+        "validation": [
+          "plain_text/validation-00000-of-00001.parquet"
+        ]
+      },
+      "main_split": "validation"
+    },
+    "propsearch": {
+      "dataset_id": "sapienzanlp/propsearch",
+      "revision": "37802225e3c9795200f3695404e00a22acdb4a31",
+      "config": "configs/propsearch.json",
+      "raw_dir": "data/propsearch",
+      "main_split": "train"
+    }
+  },
+  "query_batch_size": 32
+}

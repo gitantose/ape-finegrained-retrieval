@@ -1,0 +1,99 @@
+{
+  "reference": "configs/reference.json",
+  "runs_dir": "runs/supportqa",
+  "storage_roots": [
+    "runs/supportqa",
+    "data/supportqa"
+  ],
+  "limits": {
+    "host_memory_bytes": 6442450944,
+    "cuda_allocated_bytes": 2147483648,
+    "storage_bytes": 6442450944,
+    "minimum_free_disk_bytes": 2147483648
+  },
+  "budget_seconds": null,
+  "propositionizer": {
+    "model_id": "chentong00/propositionizer-wiki-flan-t5-large",
+    "revision": "aaa3ddeef7ac710cdbfa3ae306fa2c6fec21884a",
+    "directory": "models/propositionizer",
+    "license": "apache-2.0",
+    "device": "cpu",
+    "dtype": "float32",
+    "input_template": "Title:\nSection:\nContent: {context}",
+    "max_input_tokens": 512,
+    "max_new_tokens": 512,
+    "do_sample": false,
+    "num_beams": 1
+  },
+  "selection": {
+    "seed": 42,
+    "contexts_per_dataset": null,
+    "exclude_contexts_file": "data/supportqa/excluded-contexts.json",
+    "questions_per_context_max": 2,
+    "context_token_limit": 128
+  },
+  "teacher": {
+    "model_id": "BAAI/bge-small-en-v1.5",
+    "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+    "model_sha256": "3c9f31665447c8911517620762200d2245a2518d6e7208acc78cd9db317e21ad",
+    "pooling": "attention_masked_mean",
+    "normalize": true
+  },
+  "diagnostics": {
+    "ape_device": "cuda",
+    "slot_score": "max_query_slot_cosine",
+    "assignment": "maximum_total_cosine_rectangular_one_to_one",
+    "assignment_ties": "lexicographically_smallest_sorted_pair_list_no_epsilon",
+    "ks": [
+      1,
+      3,
+      5
+    ],
+    "human_gold_metrics": false
+  },
+  "authorization": "Frozen held-out SupportQA and three-model comparison",
+  "reuse_from": "runs/archive/supportqa-reference",
+  "exclusive_allocated_storage": true,
+  "retrieval": {
+    "config": "configs/benchmarks.json",
+    "ks": [
+      1,
+      5,
+      10,
+      20
+    ],
+    "scoring_query_batch_size": 64,
+    "encoding_batch_size": 32,
+    "encoding_shard_rows": 2048,
+    "ranking_checkpoint_queries": 1024
+  },
+  "baselines": {
+    "simcse": {
+      "model_id": "princeton-nlp/unsup-simcse-bert-base-uncased",
+      "revision": "218baf6bc48c463a53f5b4e1c568299537fab124",
+      "weights_sha256": "d1c2ee39eee210f7a0760a71342a7fe304c61ae8ba7274e73aff437eb64c84ac",
+      "weights_bytes": 437998343,
+      "pooling": "cls_before_pooler",
+      "score": "cosine",
+      "max_tokens": 128,
+      "upstream_license": "MIT",
+      "license_url": "https://github.com/princeton-nlp/SimCSE/blob/main/LICENSE",
+      "checkpoint_license_metadata": null,
+      "source_url": "https://github.com/princeton-nlp/SimCSE/wiki/Load-SimCSE-Models"
+    },
+    "contriever": {
+      "model_id": "facebook/contriever",
+      "revision": "2bd46a25019aeea091fd42d1f0fd4801675cf699",
+      "weights_sha256": "d0b6e2516913f812360475154323f50e2b1e1da0ce6a435175e08f218784c6fb",
+      "weights_bytes": 438007537,
+      "pooling": "attention_masked_mean",
+      "score": "dot_product",
+      "max_tokens": 512,
+      "upstream_license": "CC BY-NC 4.0 in upstream LICENSE",
+      "license_url": "https://github.com/facebookresearch/contriever/blob/main/LICENSE",
+      "checkpoint_license_metadata": null,
+      "source_url": "https://huggingface.co/facebook/contriever"
+    }
+  },
+  "dataset_dir": "data/supportqa"
+}

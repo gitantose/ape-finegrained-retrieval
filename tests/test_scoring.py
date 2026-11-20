@@ -37,6 +37,29 @@ class ScoringTests(unittest.TestCase):
         scores = torch.stack([one, one, above, torch.tensor(0.)])[None]
         self.assertEqual(_rank(scores, torch.tensor([0])).item(), 2)
 
+    def test_ha_maxsim_and_h2p_have_distinct_reductions(self):
+        query, document = torch.eye(2), torch.tensor([[3., 0.]])
+        scorer = APEScore(query, document)
+        self.assertEqual(scorer.hungarian(), 1.)
+        self.assertEqual(scorer.maxsim(), .75)
+        self.assertEqual(scorer.h_min_to_p(), 0.)
+        reverse = APEScore(document, query)
+        self.assertEqual(reverse.hungarian(), scorer.hungarian())
+        self.assertEqual(reverse.maxsim(), scorer.maxsim())
+        self.assertEqual(reverse.h_min_to_p(), 1.)
+
+    def test_hungarian_global_assignment_and_symmetric_permutation(self):
+        query = torch.eye(2)
+        document = torch.tensor([[.8, .6], [.6, -.8]])
+        # Optimal assignment pairs q0 with d1 and q1 with d0, not greedy q0-d0.
+        scorer = APEScore(query, document)
+        self.assertAlmostEqual(scorer.hungarian(), .6, places=6)
+        for rule in ("hungarian", "maxsim"):
+            expected = scorer.score(rule)
+            self.assertAlmostEqual(APEScore(document, query).score(rule), expected)
+            self.assertAlmostEqual(APEScore(query.flip(0), document.flip(0)).score(rule), expected)
+            self.assertEqual(APEScore(torch.empty(0, 2), document).score(rule), 0.)
+
     def test_variable_slots_duplicate_positions_and_known_ranks(self):
         queries = {"q": torch.tensor([[1., 0.], [0., 1.]])}
         corpus = {"partial": torch.tensor([[1., 0.]]),
