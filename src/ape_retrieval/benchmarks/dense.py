@@ -25,7 +25,6 @@ from ape_retrieval.propsearch import sha256
 
 DATASETS = ('nq', 'squad', 'propsearch')
 DIMENSION = 768
-ROW_BYTES = DIMENSION * np.dtype(np.float32).itemsize
 MODEL_FILES = ['config.json', 'pytorch_model.bin', 'tokenizer.json', 'tokenizer_config.json',
                'special_tokens_map.json', 'vocab.txt', 'README.md']
 
@@ -52,8 +51,20 @@ def acquire(config, output, should_stop):
 
 def checkpoint(output, name, spec):
     directory = output / 'models' / name
-    files = json.loads((directory / 'files.json').read_text())
-    if files.get('pytorch_model.bin') != spec['weights_sha256']:
+    receipt = directory / 'files.json'
+    weights = spec.get('weights_file', 'pytorch_model.bin')
+    if 'local_cache_dir' in spec:
+        checkpoint_dir = Path(spec['local_cache_dir']) / ('models--' + spec['model_id'].replace('/', '--'))
+        checkpoint_dir = checkpoint_dir / 'snapshots' / spec['revision']
+        files = {filename: sha256(checkpoint_dir / filename)
+                 for filename in [weights, *[f for f in MODEL_FILES if f != 'pytorch_model.bin']]}
+        if files[weights] != spec['weights_sha256']:
+            raise ValueError(f'Local checkpoint hash mismatch for {name}')
+        directory.mkdir(parents=True, exist_ok=True)
+        commit_manifest(receipt, files)
+        return checkpoint_dir
+    files = json.loads(receipt.read_text())
+    if files.get(weights) != spec['weights_sha256']:
         raise ValueError(f'Checkpoint receipt differs from the pinned revision for {name}')
     for filename, digest in files.items():
         if sha256(directory / filename) != digest:
@@ -146,8 +157,9 @@ def commit_manifest(path, identity):
         atomic_json(path, identity)
 
 
-def validate_vector_blocks(directory, state, total):
+def validate_vector_blocks(directory, state, total, dimension=DIMENSION):
     cursor = 0
+    row_bytes = dimension * np.dtype(np.float32).itemsize
     path = directory / 'vectors.f32'
     if state['blocks']:
         with path.open('rb') as stream:
@@ -155,15 +167,15 @@ def validate_vector_blocks(directory, state, total):
                 rows = block['stop'] - cursor
                 if block['start'] != cursor or rows <= 0 or block['stop'] > total:
                     raise ValueError('Invalid vector checkpoint interval')
-                data = stream.read(rows * ROW_BYTES)
-                if len(data) != rows * ROW_BYTES or hashlib.sha256(data).hexdigest() != block['sha256']:
+                data = stream.read(rows * row_bytes)
+                if len(data) != rows * row_bytes or hashlib.sha256(data).hexdigest() != block['sha256']:
                     raise ValueError('Corrupt committed FP32 vectors')
                 if block.get('segment_file') and sha256(directory / block['segment_file']) != block['segment_sha256']:
                     raise ValueError('Corrupt committed segment offsets')
                 cursor = block['stop']
     if cursor != state['completed'] or (state['status'] == 'COMPLETED' and cursor != total):
         raise ValueError('Vector checkpoint row count changed')
-    if state['status'] == 'COMPLETED' and path.stat().st_size != total * ROW_BYTES:
+    if state['status'] == 'COMPLETED' and path.stat().st_size != total * row_bytes:
         raise ValueError('Completed vector storage size changed')
     return cursor
 
@@ -171,32 +183,39 @@ def validate_vector_blocks(directory, state, total):
 def encode_index(config, directory, texts, identity, name, model_dir, should_stop):
     spec = config['baselines'][name]
     settings = config['retrieval']
+    dimension = spec.get('dimension', DIMENSION)
+    row_bytes = dimension * np.dtype(np.float32).itemsize
+    receipt = Path(config['runs_dir']) / 'models' / name / 'files.json' if 'local_cache_dir' in spec else model_dir / 'files.json'
+    device_name = settings.get('device', 'cuda')
     directory.mkdir(parents=True, exist_ok=True)
     commit_manifest(directory / 'manifest.json', {'model': spec, 'rows': len(texts), 'identity': identity,
         'text_index_sha256': text_index_hash(texts), 'encoding_batch_size': settings['encoding_batch_size'],
         'encoding_shard_rows': settings['encoding_shard_rows'], 'source_sha256': sha256(Path(__file__)),
         'source_offset_segmenter_sha256': sha256(Path(__file__).with_name('encoding.py')),
-        'checkpoint_files_sha256': sha256(model_dir / 'files.json'), 'uv_lock_sha256': sha256(Path('uv.lock')),
+        'checkpoint_files_sha256': sha256(receipt), 'uv_lock_sha256': sha256(Path('uv.lock')),
+        **({'device': device_name} if 'device' in settings else {}),
         'precision': 'FP32; TF32 off', 'segmentation': 'source-offset windows; equal segment weights'})
     state_path = directory / 'progress.json'
     state = json.loads(state_path.read_text()) if state_path.exists() else {'status': 'RUNNING', 'completed': 0, 'blocks': []}
-    resumed = validate_vector_blocks(directory, state, len(texts))
+    resumed = validate_vector_blocks(directory, state, len(texts), dimension)
     if state['status'] == 'COMPLETED':
         return
-    device = configure_reference(json.loads(Path(config['reference']).read_text()), 'cuda')
+    device = configure_reference(json.loads(Path(config['reference']).read_text()), device_name)
     if not texts:
         (directory / 'vectors.f32').touch()
         state['status'] = 'COMPLETED'
         atomic_json(state_path, state)
         return
     model, tokenizer = load_encoder(model_dir, device)
+    if model.config.hidden_size != dimension or model.config.max_position_embeddings < spec['max_tokens']:
+        raise ValueError(f'Configured dimensions or token limit differ from the checkpoint for {name}')
     started = time.monotonic()
     for start in range(resumed, len(texts), settings['encoding_shard_rows']):
         if should_stop():
             raise InterruptedError('Stopped before the next baseline encoding shard')
         batch = texts[start:start + settings['encoding_shard_rows']]
         values, offsets = encode_texts(model, tokenizer, batch, spec, settings['encoding_batch_size'], device)
-        if values.shape != (len(batch), DIMENSION) or values.dtype != np.float32 or not np.isfinite(values).all():
+        if values.shape != (len(batch), dimension) or values.dtype != np.float32 or not np.isfinite(values).all():
             raise ValueError('Invalid baseline vector shard')
         if spec['score'] == 'cosine' and not np.allclose(np.linalg.norm(values, axis=1), 1, atol=2e-5):
             raise ValueError('Cosine baseline emitted non-unit vectors')
@@ -204,7 +223,7 @@ def encode_index(config, directory, texts, identity, name, model_dir, should_sto
         path = directory / 'vectors.f32'
         with path.open('r+b' if path.exists() else 'w+b') as stream:
             # Only an uncommitted tail can be present after interruption.
-            stream.truncate(start * ROW_BYTES)
+            stream.truncate(start * row_bytes)
             stream.seek(0, os.SEEK_END)
             stream.write(data)
             stream.flush()
@@ -232,10 +251,12 @@ def open_vectors(directory):
     manifest = json.loads((directory / 'manifest.json').read_text())
     progress = json.loads((directory / 'progress.json').read_text())
     total = manifest['rows']
+    dimension = manifest.get('model', {}).get('dimension', DIMENSION)
     if progress['status'] != 'COMPLETED':
         raise ValueError('Baseline embeddings are incomplete')
-    validate_vector_blocks(directory, progress, total)
-    return np.memmap(directory / 'vectors.f32', mode='r', dtype=np.float32, shape=(total, DIMENSION)) if total else np.empty((0, DIMENSION), dtype=np.float32)
+    validate_vector_blocks(directory, progress, total, dimension)
+    shape = (total, dimension)
+    return np.memmap(directory / 'vectors.f32', mode='r', dtype=np.float32, shape=shape) if total else np.empty(shape, dtype=np.float32)
 
 
 def write_rank_block(path, rows):
@@ -325,6 +346,7 @@ def run_dense(config, output, action, name, should_stop):
     paths, sources = source_paths(config)
     text_positions, ids = benchmark_text_index(paths)
     model_dir = checkpoint(output, name, config['baselines'][name])
+    receipt = output / 'models' / name / 'files.json'
     output = output / 'retrieval' / name
     encoding = output / 'encoding'
     if action == 'encode':
@@ -333,10 +355,11 @@ def run_dense(config, output, action, name, should_stop):
     manifest = json.loads((encoding / 'manifest.json').read_text())
     if (manifest['text_index_sha256'] != text_index_hash(text_positions)
             or manifest['identity'] != sources or manifest['model'] != config['baselines'][name]
-            or manifest['checkpoint_files_sha256'] != sha256(model_dir / 'files.json')):
+            or manifest['checkpoint_files_sha256'] != sha256(receipt)
+            or manifest.get('device', 'cuda') != config['retrieval'].get('device', 'cuda')):
         raise ValueError('Benchmark text/vector identity changed')
     vectors = open_vectors(encoding)
-    device = configure_reference(json.loads(Path(config['reference']).read_text()), 'cuda')
+    device = configure_reference(json.loads(Path(config['reference']).read_text()), config['retrieval'].get('device', 'cuda'))
     identity = {f: sha256(encoding / f) for f in ('manifest.json', 'progress.json')}
     for dataset in DATASETS:
         rank_dataset(config, output, paths[dataset], dataset, name, vectors, ids[dataset], identity, device, should_stop)

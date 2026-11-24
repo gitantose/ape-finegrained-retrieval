@@ -1,0 +1,37 @@
+{
+  "reference": "configs/reference.json",
+  "supportqa_config": "configs/supportqa.json",
+  "supportqa_run": "runs/supportqa",
+  "runs_dir": "runs/bge-small",
+  "storage_roots": ["runs/bge-small"],
+  "exclusive_allocated_storage": true,
+  "limits": {
+    "host_memory_bytes": 6442450944,
+    "cuda_allocated_bytes": 2147483648,
+    "storage_bytes": 6442450944,
+    "minimum_free_disk_bytes": 2147483648
+  },
+  "retrieval": {
+    "config": "configs/benchmarks.json",
+    "device": "cuda",
+    "ks": [1, 5, 10, 20],
+    "scoring_query_batch_size": 64,
+    "encoding_batch_size": 32,
+    "encoding_shard_rows": 2048,
+    "ranking_checkpoint_queries": 1024
+  },
+  "baselines": {
+    "bge": {
+      "model_id": "BAAI/bge-small-en-v1.5",
+      "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "local_cache_dir": ".cache/huggingface",
+      "weights_file": "model.safetensors",
+      "weights_sha256": "3c9f31665447c8911517620762200d2245a2518d6e7208acc78cd9db317e21ad",
+      "dimension": 384,
+      "pooling": "cls_before_pooler",
+      "score": "cosine",
+      "max_tokens": 512,
+      "source_url": "https://huggingface.co/BAAI/bge-small-en-v1.5/tree/5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+    }
+  }
+}

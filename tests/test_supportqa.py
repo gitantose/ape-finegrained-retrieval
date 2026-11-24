@@ -157,30 +157,36 @@ class DenseBaselineTests(unittest.TestCase):
         np.testing.assert_allclose(values[:, 1], 1)
 
     def test_dense_encoding_resume_discards_only_uncommitted_tail(self):
-        config = {'reference': 'configs/reference.json', 'baselines': {'contriever': {'score': 'dot_product'}},
+        config = {'reference': 'configs/reference.json',
+                  'baselines': {'bge': {'score': 'cosine', 'dimension': 384, 'max_tokens': 512}},
                   'retrieval': {'encoding_shard_rows': 2, 'encoding_batch_size': 2}}
-        values = lambda text: float(ord(text))
+        model = SimpleNamespace(config=SimpleNamespace(hidden_size=384, max_position_embeddings=512))
 
         def fake_encode(_model, _tokenizer, texts, _spec, _batch_size, _device):
-            return np.asarray([[values(t)] * 768 for t in texts], dtype=np.float32), [[(0, len(t))] for t in texts]
+            vectors = np.zeros((len(texts), 384), dtype=np.float32)
+            for index, text in enumerate(texts):
+                vectors[index, ord(text)] = 1
+            return vectors, [[(0, len(t))] for t in texts]
 
         with tempfile.TemporaryDirectory() as temp, patch('ape_retrieval.benchmarks.dense.configure_reference'), \
-                patch('ape_retrieval.benchmarks.dense.load_encoder', return_value=(None, None)), \
+                patch('ape_retrieval.benchmarks.dense.load_encoder', return_value=(model, None)), \
                 patch('ape_retrieval.benchmarks.dense.encode_texts', side_effect=fake_encode) as encode:
             root = Path(temp)
             (root / 'files.json').write_text('{}')
             directory = root / 'encoding'
             stops = iter([False, True, True])
             with self.assertRaises(InterruptedError):
-                encode_index(config, directory, list('abc'), {}, 'contriever', root, lambda force=False: next(stops))
+                encode_index(config, directory, list('abc'), {}, 'bge', root, lambda force=False: next(stops))
             with (directory / 'vectors.f32').open('ab') as stream:
                 stream.write(b'partial')
             encode.reset_mock()
-            encode_index(config, directory, list('abc'), {}, 'contriever', root, lambda force=False: False)
+            encode_index(config, directory, list('abc'), {}, 'bge', root, lambda force=False: False)
             self.assertEqual(encode.call_args.args[2], ['c'])
-            np.testing.assert_array_equal(open_vectors(directory)[:, 0], [97, 98, 99])
+            vectors = open_vectors(directory)
+            self.assertEqual(vectors.shape, (3, 384))
+            np.testing.assert_array_equal(vectors.argmax(axis=1), [97, 98, 99])
             with self.assertRaisesRegex(ValueError, 'Resume identity changed'):
-                encode_index(config, directory, list('abd'), {}, 'contriever', root, lambda force=False: False)
+                encode_index(config, directory, list('abd'), {}, 'bge', root, lambda force=False: False)
 
     def test_exact_full_rank_ties_and_native_ineligibility(self):
         config = {'baselines': {'contriever': {'score': 'dot_product'}}, 'retrieval': {

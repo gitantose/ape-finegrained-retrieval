@@ -31,18 +31,21 @@ def support_sources(config, output, name):
     encoding = output / 'retrieval' / name / 'encoding'
     manifest = read(encoding / 'manifest.json')
     model_dir = checkpoint(output, name, config['baselines'][name])
+    receipt = output / 'models' / name / 'files.json'
     if (manifest['identity'] != sources or manifest['text_index_sha256'] != text_index_hash(benchmark_positions)
-            or manifest['checkpoint_files_sha256'] != sha256(model_dir / 'files.json')
+            or manifest['checkpoint_files_sha256'] != sha256(receipt)
+            or manifest.get('device', 'cuda') != config['retrieval'].get('device', 'cuda')
             or manifest['model'] != config['baselines'][name]):
         raise ValueError('Support query requires compatible document-benchmark vectors')
-    documents, groups = selected_rows(output)
+    frozen = Path(config.get('supportqa_run', output))
+    documents, groups = selected_rows(frozen)
     propositions, new_texts = {}, {}
     generation = hashlib.sha256()
     for doc_id, document in documents.items():
-        value = read_decomposition(output, document)
+        value = read_decomposition(frozen, document)
         if value is None:
             raise InterruptedError('Waiting for complete question-blind generation')
-        generation.update(bytes.fromhex(sha256(output / 'decompositions' / (document['context_sha256'] + '.json'))))
+        generation.update(bytes.fromhex(sha256(frozen / 'decompositions' / (document['context_sha256'] + '.json'))))
         propositions[doc_id] = value['reference_propositions']
         if not value['potentially_incomplete']:
             for p in value['reference_propositions']:
@@ -52,7 +55,7 @@ def support_sources(config, output, name):
         raise ValueError('Selected native query missing from the document benchmark embedding index')
     identity = {'benchmark_manifest_sha256': sha256(encoding / 'manifest.json'),
                 'benchmark_progress_sha256': sha256(encoding / 'progress.json'),
-                'supportqa_selection_sha256': sha256(output / 'selection.json'),
+                'supportqa_selection_sha256': sha256(frozen / 'selection.json'),
                 'decompositions_sha256': generation.hexdigest()}
     return model_dir, encoding, identity, benchmark_positions, new_texts, propositions
 
@@ -107,11 +110,12 @@ def predict_ape(output, query, case, ks):
 
 
 def baseline_accessor(config, output, name):
-    model_dir, encoding, identity, positions, new_texts, propositions = support_sources(config, output, name)
+    _, encoding, identity, positions, new_texts, propositions = support_sources(config, output, name)
     support_dir = output / 'support' / name / 'encoding'
     manifest = read(support_dir / 'manifest.json')
     if (manifest['identity'] != identity or manifest['text_index_sha256'] != text_index_hash(new_texts)
-            or manifest['checkpoint_files_sha256'] != sha256(model_dir / 'files.json')
+            or manifest['checkpoint_files_sha256'] != sha256(output / 'models' / name / 'files.json')
+            or manifest.get('device', 'cuda') != config['retrieval'].get('device', 'cuda')
             or manifest['model'] != config['baselines'][name]):
         raise ValueError('Support proposition cache identity changed')
     benchmark_vectors = open_vectors(encoding)
@@ -129,9 +133,9 @@ def baseline_accessor(config, output, name):
     return predict
 
 
-def summarize_group(records, model, ks, common=False):
+def summarize_group(records, model, ks, common_models=()):
     eligible = [r[model] for r in records if r[model]['metrics']
-                and (not common or all(r[m]['metrics'] for m in MODELS))]
+                and all(r[m]['metrics'] for m in common_models)]
     values = [r['metrics']['best_sufficient_set_per_metric'] for r in eligible]
     keys = ['first_support_reciprocal_rank', *(f'Recall@{k}' for k in ks),
             *(f'all_required_Success@{k}' for k in ks)]
@@ -139,7 +143,7 @@ def summarize_group(records, model, ks, common=False):
     means = {('MRR' if key == keys[0] else key): sum(v[key] for v in values) / eligible_count
              for key in keys} if values else None
     exclusions = Counter(r[model]['eligibility'] for r in records if not r[model]['metrics'])
-    if common:
+    if common_models:
         excluded_by_other_models = len(records) - sum(exclusions.values()) - eligible_count
         if excluded_by_other_models:
             exclusions['ineligible_for_another_model'] = excluded_by_other_models
@@ -153,7 +157,7 @@ def summarize_group(records, model, ks, common=False):
                 for a in r['metrics']['alternatives']) for r in eligible)}
 
 
-def evaluate_support(config, output, should_stop):
+def support_cases(output):
     annotation = read(output / 'annotation-summary.json')
     if annotation['status'] != 'COMPLETE':
         raise InterruptedError('Waiting for complete Codex semantic annotation')
@@ -167,6 +171,78 @@ def evaluate_support(config, output, should_stop):
     selected_count = sum(len(rows) for rows in by_doc.values())
     if len(annotation_rows) != len(cases) or len(queries) != selected_count or cases.keys() != queries.keys():
         raise ValueError('Support annotation coverage differs from the frozen query population')
+    if any(case['document_id'] != queries[qid]['document_id'] for qid, case in cases.items()):
+        raise ValueError('Annotation context does not match original query')
+    return documents, queries, cases, annotation['queries_sha256']
+
+
+def support_predictions(predict, queries, cases, ks, should_stop):
+    for qid, case in cases.items():
+        if should_stop():
+            raise InterruptedError('Stopped during SupportQA scoring')
+        if case['support_type'] in CLASSES:
+            result = predict(queries[qid], case, ks)
+        else:
+            result = {'eligibility': case['support_type'], 'metrics': None}
+        yield {'query_id': qid, **result}
+
+
+def rank_frozen_support(config, output, name, should_stop):
+    frozen = Path(config['supportqa_run'])
+    _, queries, cases, annotation_hash = support_cases(frozen)
+    directory = output / 'support'
+    rank_path = directory / f'{name}-predictions.jsonl.gz'
+    predict = baseline_accessor(config, output, name)
+    ks = config['retrieval']['ks']
+    write_rank_block(rank_path, support_predictions(predict, queries, cases, ks, should_stop))
+    del predict
+    previous = read(frozen / 'support' / 'metrics.json')
+    if previous['input_annotations_sha256'] != annotation_hash:
+        raise ValueError('Previous predictions used different SupportQA annotations')
+    receipts = {**previous['predictions'], name: {'file': str(rank_path), 'sha256': sha256(rank_path)}}
+    predictions = {}
+    for model, receipt in receipts.items():
+        path = Path(receipt['file'])
+        if sha256(path) != receipt['sha256']:
+            raise ValueError(f'Saved SupportQA predictions changed for {model}')
+        rows = list(json_lines(path))
+        predictions[model] = {row['query_id']: row for row in rows}
+        if len(rows) != len(cases) or predictions[model].keys() != cases.keys():
+            raise ValueError(f'Saved SupportQA queries differ for {model}')
+    models = (*MODELS, name)
+    grouped = defaultdict(list)
+    prior_common, common = [], []
+    exclusions = Counter()
+    for qid, case in cases.items():
+        prior_eligible = all(predictions[m][qid]['metrics'] is not None for m in MODELS)
+        if prior_eligible:
+            prior_common.append(qid)
+            if predictions[name][qid]['metrics'] is not None:
+                common.append(qid)
+            else:
+                exclusions[predictions[name][qid]['eligibility']] += 1
+        label = case['support_type']
+        if label in CLASSES:
+            record = {model: predictions[model][qid] for model in models}
+            grouped[f'{case["dataset"]}/{label}'].append(record)
+            grouped[f'combined/{label}'].append(record)
+    atomic_json(directory / 'metrics.json', {
+        'input_annotations_sha256': annotation_hash, 'predictions': receipts,
+        'prior_common_eligible_queries': len(prior_common), 'common_eligible_query_ids': sorted(common),
+        'additional_common_exclusions': dict(exclusions),
+        'method_eligibility': {
+            source: dict(Counter(predictions[name][qid]['eligibility'] for qid, case in cases.items()
+                                 if case['dataset'] == source))
+            for source in ('nq', 'squad')},
+        'groups': {group: summarize_group(rows, name, ks) for group, rows in grouped.items()},
+        'common_eligible_groups': {
+            group: {model: summarize_group(rows, model, ks, models) for model in models}
+            for group, rows in grouped.items()},
+    })
+
+
+def evaluate_support(config, output, should_stop):
+    documents, queries, cases, annotation_hash = support_cases(output)
     ks = config['retrieval']['ks']
     directory = output / 'support'
     predictions = {qid: {} for qid in cases}
@@ -179,14 +255,8 @@ def evaluate_support(config, output, should_stop):
                 return predict_ape(output, query, case, cutoffs)
         else:
             predict = baseline_accessor(config, output, name)
-        for qid, case in cases.items():
-            if case['document_id'] != queries[qid]['document_id']:
-                raise ValueError('Annotation context does not match original query')
-            if case['support_type'] in CLASSES:
-                result = predict(queries[qid], case, ks)
-            else:
-                result = {'eligibility': case['support_type'], 'metrics': None}
-            predictions[qid][name] = result
+        for row in support_predictions(predict, queries, cases, ks, should_stop):
+            predictions[row.pop('query_id')][name] = row
         path = directory / f'{name}-predictions.jsonl.gz'
         write_rank_block(path, ({'query_id': qid, **by_model[name]} for qid, by_model in predictions.items()))
         source_paths_by_model[name] = {'file': str(path), 'sha256': sha256(path)}
@@ -207,11 +277,11 @@ def evaluate_support(config, output, should_stop):
             active_slots['combined'][count] += 1
     all_groups = [(dataset, label) for dataset in ('nq', 'squad', 'combined') for label in CLASSES]
     atomic_json(directory / 'metrics.json', {'task': 'within-context proposition support',
-        'input_annotations_sha256': annotation['queries_sha256'],
+        'input_annotations_sha256': annotation_hash,
         'predictions': source_paths_by_model, 'active_slots_per_context': active_slots,
         'method_eligibility': {ds: {m: dict(Counter(predictions[qid][m]['eligibility'] for qid, case in cases.items()
                                          if case['dataset'] == ds)) for m in MODELS} for ds in ('nq', 'squad')},
         'groups': {f'{ds}/{label}': {m: summarize_group(groups[ds, label], m, ks) for m in MODELS}
                    for ds, label in all_groups},
-        'common_eligible_groups': {f'{ds}/{label}': {m: summarize_group(groups[ds, label], m, ks, common=True) for m in MODELS}
+        'common_eligible_groups': {f'{ds}/{label}': {m: summarize_group(groups[ds, label], m, ks, MODELS) for m in MODELS}
                                    for ds, label in all_groups}})
