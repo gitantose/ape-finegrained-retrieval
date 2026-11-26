@@ -111,7 +111,7 @@ proposition texts directly by cosine similarity, as does SimCSE. Contriever
 ranks proposition texts by dot product.
 
 The frozen selection contains **8,967 contexts** and **10,142 query outcomes**.
-The tables combine both sources over the **6,022 queries eligible for all four
+The frozen silver tables combine both sources over the **6,022 queries eligible for all four
 models (59.4%)**, with 3,758 single-support and 2,264 multi-support queries.
 The other queries had insufficient context (2,297), ambiguous support (1,001),
 a decomposition error (821), or a reference proposition that exceeded the APE
@@ -170,36 +170,35 @@ SupportQA v1 keeps the original silver outcomes for all 10,142 queries.
 The 70 confirmed human judgments form a separate layer joined by `query_id`.
 The thesis author made the final judgments, with AI-assisted discussion or
 note drafting in some cases. Human review changed the sufficient support
-sets on 27 of the 70 reviewed queries. Nineteen gained a sufficient set where
-the silver review had none, and one lost the set accepted by the silver review.
+sets on 27 of the 70 reviewed queries.
 
-Of the 70 reviewed queries, 57 had a human-confirmed sufficient set. The
-table uses the 38 of those queries with usable saved rankings from all four
-models. The 19 supported queries without saved rankings are excluded from
-retrieval scores. These results describe the reviewed subset.
+Of the 70 confirmed human outcomes, 57 had a sufficient proposition set.
+All 57 were jointly scored on the same query IDs for all four models.
+These results describe the reviewed subset.
 
 | Model | First-positive MRR | Complete-set Success@5 |
 | --- | ---: | ---: |
-| APE | 0.6430 | 31/38 |
-| BGE-small | 0.7829 | 37/38 |
-| SimCSE | 0.8364 | 33/38 |
-| Contriever | 0.7226 | 33/38 |
+| APE | 0.6924 | 46/57 |
+| BGE-small | 0.7968 | 54/57 |
+| SimCSE | 0.8161 | 51/57 |
+| Contriever | 0.7683 | 50/57 |
 
 First-positive MRR measures how early the first relevant item appears.
 Complete-set Success@5 counts queries for which the top five contain every
 element of at least one human-confirmed sufficient set.
 
-In 11 cases, APE assigned a single sufficient proposition to a slot but
-ranked that slot below first. Reranking the existing slots could improve
-those cases. In seven cases, even all active slots together did not cover a
-complete set under the saved assignment. The saved evidence leaves open
-whether the matching missed the evidence or the slots failed to represent it.
+In 15 cases, APE mapped a sufficient single proposition to a slot and ranked
+it below first. In the Mayweather–De La Hoya case, that slot was fourth.
+Reranking the existing slots could improve those cases. On 11 queries,
+no complete set was available under the saved assignment. For *The Nightmare
+Before Christmas*, the proposition about Danny Elfman's singing voice was
+unmatched. The saved evidence leaves open whether the matching missed the
+evidence or the slots failed to represent it.
 
 [SupportQA v1](https://huggingface.co/datasets/antoserra/supportqa-v1) is
 available on Hugging Face. The
 [evaluation report](https://huggingface.co/datasets/antoserra/supportqa-v1/blob/main/evaluation-report.md)
-documents the 70 human-reviewed queries and the diagnostic audit on the 38
-queries with saved rankings from all four models.
+is hosted with the dataset.
 
 ## Limitations and next steps
 

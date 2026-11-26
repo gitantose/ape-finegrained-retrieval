@@ -2,9 +2,10 @@
 
 from collections import Counter
 
+from ape_retrieval.propsearch import sha256
 from ape_retrieval.supportqa.human_review import (
     CAUSES, KS, MODELS, TERMINAL, current_version, open_queues, read, scored, state, support_class,
-    validate_decision, validate_sets, validate_source,
+    validate_decision, validate_sets, validate_source, verify_hashes,
 )
 from ape_retrieval.supportqa.review import Records
 
@@ -229,7 +230,38 @@ def population(study, selection, confirmed, common_ids):
         print(f'- {label}: {sum(w for q, w in weights.items() if predicate(q)) / total:.2%}')
 
 
+def final_report(study, root, audit_path):
+    audit = read(audit_path)
+    verify_hashes(audit['input_sha256'])
+    if sha256(audit_path.with_name('new-predictions.json')) != audit['new_predictions_sha256']:
+        raise ValueError('Final audit prediction checksum mismatch.')
+    selection = open_queues(root, 'evaluation')
+    records = judgment_records(study, root, 'evaluation', selection['query_ids'])
+    confirmed = latest_confirmations(records, blinded=True)
+    supported = {qid for qid, judgment in confirmed.items() if judgment['support_sets']}
+    cohort, queries = audit['cohort'], audit['queries']
+    matched = cohort['matched']
+    if (audit['shared_cutoffs'] != list(KS) or set(cohort['confirmed']) != confirmed.keys()
+            or set(cohort['supported']) != supported or set(matched) != supported
+            or len(matched) != len(supported) or queries.keys() != supported or cohort['unavailable']):
+        raise ValueError('Final audit coverage differs from the frozen human judgments.')
+    for qid, row in queries.items():
+        if row['support_alternatives'] != confirmed[qid]['support_sets'] or row['models'].keys() != set(MODELS):
+            raise ValueError(f'Final audit evidence or model coverage differs for {qid}.')
+
+    print('# SupportQA v1 human-label evaluation')
+    print(f'\n{len(confirmed)} confirmed judgments, {len(supported)} with sufficient support, '
+          f'and all {len(matched)} jointly scored by all four models.')
+    tables = [(label, 'human', {q: queries[q]['models'][model]['metrics'] for q in matched}, matched)
+              for model, label in zip(MODELS, ('APE', 'BGE-small', 'SimCSE', 'Contriever'), strict=True)]
+    metric_table('Human-label retrieval results', tables, len(confirmed))
+
+
 def report(study, root):
+    audit_path = root / 'final-audit' / 'audit.json'
+    if audit_path.is_file():
+        return final_report(study, root, audit_path)
+
     print('# SupportQA local human evaluation')
     print('\nOnly explicitly confirmed versions enter metrics. Evaluation uses the latest saved decision '
           'before seeing model comparison. Diagnostic summaries use the latest saved decision and are descriptive. '
